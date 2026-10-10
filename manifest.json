@@ -1,0 +1,23 @@
+{
+  "name": "Vampire Warrior · Blood Hero",
+  "short_name": "Blood Hero",
+  "description": "2D Retro Action Vampire Hunter Game",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0a0612",
+  "theme_color": "#0a0612",
+  "icons": [
+    {
+      "src": "sprite-animation-128x128-frames/frame-1.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "sprite-animation-128x128-frames/frame-2.png",
+      "sizes": "128x128",
+      "type": "image/png"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "bloodhero-vampire-warrior",
+  "version": "1.0.0",
+  "description": "Vampire Warrior · Blood Hero 2D Action Game (Web Version)",
+  "main": "web/index.html",
+  "scripts": {
+    "dev": "powershell -File ./web/run_web.ps1",
+    "deploy": "npx vercel --prod"
+  },
+  "keywords": [
+    "game",
+    "vampire-hunter",
+    "html5-game",
+    "canvas-game",
+    "blood-hero"
+  ],
+  "author": "BloodHero Team",
+  "license": "MIT"
+}

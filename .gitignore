@@ -1,0 +1,13 @@
+# Build directories
+app/android-build/
+android-build/
+
+# Signing signatures & temp
+*.idsig
+*.tmp
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
