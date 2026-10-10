@@ -204,7 +204,8 @@ body.touch #pad{display:block}
   pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;
 }
 #joyBase{
-  position:absolute;left:90px;bottom:90px;width:136px;height:136px;
+  position:absolute;left:clamp(80px, 12vw, 130px);bottom:clamp(75px, 18vh, 120px);
+  width:clamp(124px, 25vmin, 150px);height:clamp(124px, 25vmin, 150px);
   transform:translate(-50%,-50%);
   border-radius:50%;
   background:radial-gradient(circle,rgba(255,45,85,.12) 0%,rgba(16,8,28,.70) 68%,rgba(255,45,85,.35) 100%);
@@ -244,8 +245,8 @@ body.touch #pad{display:block}
 
 /* โซนปุ่มการกระทำครึ่งขวา */
 #actZone{
-  position:absolute;right:18px;bottom:16px;
-  width:240px;height:190px;
+  position:absolute;right:calc(12px + env(safe-area-inset-right, 0px));bottom:calc(10px + env(safe-area-inset-bottom, 0px));
+  width:clamp(220px, 30vw, 280px);height:clamp(170px, 42vh, 220px);
   pointer-events:none;
 }
 .act-btn{
@@ -1038,12 +1039,6 @@ h1 em{display:block;font-style:normal;font-size:.52em;color:#ff2d55;letter-spaci
         <button id="btnOptVoiceSelect" class="opt-link-btn">เลือกเสียง…</button>
       </div>
 
-      <!-- Auto Aim on mobile -->
-      <div class="opt-row">
-        <span class="opt-label">🎯 ล็อกเป้าอัตโนมัติ</span>
-        <button id="btnOptAutoAim" class="opt-toggle-btn on">เปิด (ช่วยเล็งบนมือถือ)</button>
-      </div>
-
       <!-- Fullscreen Toggle for Web Browsers -->
       <div class="opt-row">
         <span class="opt-label">🖥️ โหมดเต็มจอ</span>
@@ -1302,21 +1297,21 @@ const PERK_CHOICES=3;      // จำนวนตัวเลือกที่�
 const WEAPONS = {
   sniper:{
     name:'SNIPER', th:'ปืนซุ่มยิง', icon:'✛', color:'#4ddbff',
-    desc:'ดาเมจสูงมาก · ยิงช้า · กระสุนเร็วและทะลุศัตรูได้ 1 ตัว',
-    dmg:105, rate:1.00, pellets:1, spread:0.004, speed:1200, life:1.2, pierce:1,
-    len:16, w:3
+    desc:'ดาเมจสูงมาก · ยิงแม่นยำ · กระสุนเร็วทะลุศัตรูได้ 1 ตัว',
+    dmg:120, rate:0.38, pellets:1, spread:0.003, speed:1800, life:1.2, pierce:1,
+    len:22, w:3.5
   },
   shotgun:{
     name:'SHOTGUN', th:'ลูกซอง', icon:'⁂', color:'#ff9f43',
-    desc:'ยิงทีละ 5 เม็ดกระจายเป็นพัด · อัตรายิงปานกลาง · ระยะสั้น',
-    dmg:20, rate:0.60, pellets:5, spread:0.34, speed:660, life:0.42, pierce:0,
-    len:7, w:4
+    desc:'ยิงทีละ 5 เม็ดกระจายเป็นพัด · กระสุนเร็วขึ้น · ระยะสั้น',
+    dmg:24, rate:0.28, pellets:5, spread:0.32, speed:1050, life:0.48, pierce:0,
+    len:8, w:4
   },
   auto:{
     name:'AUTO RIFLE', th:'ไรเฟิลอัตโนมัติ', icon:'≡', color:'#ffd166',
-    desc:'อัตรายิงสูงมาก · ดาเมจต่อนัดต่ำ · ควบคุมง่ายที่สุด',
-    dmg:16, rate:0.09, pellets:1, spread:0.075, speed:820, life:0.95, pierce:0,
-    len:10, w:2.5
+    desc:'อัตรายิงสูงมาก · กระสุนพุ่งเร็วทันใจ · ควบคุมง่ายที่สุด',
+    dmg:18, rate:0.065, pellets:1, spread:0.065, speed:1350, life:0.95, pierce:0,
+    len:12, w:2.8
   }
 };
 const WEAPON_KEYS=Object.keys(WEAPONS);
@@ -2259,7 +2254,14 @@ window.addEventListener('mousedown',e=>{
   const r=cv.getBoundingClientRect();
   MOUSE.x=e.clientX-r.left-G.shakeX; MOUSE.y=e.clientY-r.top-G.shakeY;
   useMouseAim();
-  if(e.target===cv||e.target===document.body) MOUSE.down=true;
+  if(e.target===cv||e.target===document.body) {
+    MOUSE.down=true;
+    // ตอบสนองการกดยิงทันทีเมื่อคลิกเมาส์
+    if(G.state==='play' && G.player && G.player.fireCd <= 0.04){
+      G.player.fireCd = 0;
+      shoot();
+    }
+  }
   SFX.init();
 });
 window.addEventListener('mouseup',e=>{ if(e.button===0) MOUSE.down=false; });
@@ -2507,26 +2509,9 @@ function update(dt){
     const m=Math.hypot(mx,my); if(m){ mx/=m; my/=m; }
   }
 
-  // ทิศทางการหันหน้า / การเล็ง
+  // ทิศทางการหันหน้า / การเล็ง (เล็งตามเคอร์เซอร์เมาส์ หรือตามทิศการเคลื่อนที่ - ไม่มีระบบล็อกเป้าอัตโนมัติ)
   if(G.aimMode==='mouse'&&MOUSE.active){
     p.face=Math.atan2(MOUSE.y-p.y,MOUSE.x-p.x);
-  } else if((PAD.fire||MOUSE.down) && autoAimOn){
-    // ขณะยิงบนมือถือ: เล็งหาศัตรู/บอสที่ใกล้ที่สุดอัตโนมัติ
-    let target=null, minDist=460;
-    if(G.boss && G.boss.entering<=0 && G.boss.ghost>0.3){
-      const bd=dist(p,G.boss);
-      if(bd<minDist){ target=G.boss; minDist=bd; }
-    }
-    for(const e of G.enemies){
-      if(e.spawnT>0) continue;
-      const d=dist(p,e);
-      if(d<minDist){ target=e; minDist=d; }
-    }
-    if(target){
-      p.face=Math.atan2(target.y-p.y,target.x-p.x);
-    } else if(Math.hypot(mx,my)>0.05){
-      p.face=Math.atan2(my,mx);
-    }
   } else if(Math.hypot(mx,my)>0.05){
     p.face=Math.atan2(my,mx);
   }
@@ -3695,37 +3680,42 @@ function resize(){
   cv.width = Math.floor(W*DPR); cv.height = Math.floor(H*DPR);
   ctx.setTransform(DPR,0,0,DPR,0,0);
 
-  /* คำนวณพื้นที่สนามรบให้เหมาะสมกับอัตราส่วนจอมือถือทุกขนาด (16:9, 19.5:9, 20:9, แท็บเล็ต) */
+  /* คำนวณพื้นที่สนามรบให้เหมาะสมกับจอมือถือ 6.7 นิ้ว (20:9, 19.5:9) และแท็บเล็ต/PC */
   const isLandscape = W >= H;
+  const aspect = W / Math.max(1, H);
+  const isWide67 = isLandscape && aspect >= 1.95; // จอยาว 6.7 นิ้ว (อัตราส่วน 20:9, 19.5:9, 21:9)
+
   let padLeft = 16, padRight = 16, padTop = 44, padBot = 16;
 
   if(IS_TOUCH){
     if(isLandscape){
-      // เว้นขอบซ้าย-ขวาสำหรับจอยสติ๊กและปุ่มโจมตี/แดช ไม่ให้ทับสนามเล่น
-      const sidePad = Math.max(120, Math.min(180, Math.floor(W * 0.15)));
+      // สำหรับจอมือถือ 6.7 นิ้ว เว้นขอบซ้าย-ขวาอย่างสมดุลสำหรับจอยสติ๊กและปุ่มแอ็กชัน
+      const sidePad = isWide67
+        ? Math.floor(W * 0.17)
+        : Math.max(110, Math.min(160, Math.floor(W * 0.14)));
       padLeft = sidePad;
       padRight = sidePad;
-      padTop = Math.max(40, Math.floor(H * 0.10));
-      padBot = Math.max(16, Math.floor(H * 0.05));
+      padTop = Math.max(36, Math.floor(H * 0.08));
+      padBot = Math.max(12, Math.floor(H * 0.04));
     } else {
       // จอแนวตั้ง
       padLeft = 12;
       padRight = 12;
-      padTop = Math.max(50, Math.floor(H * 0.14));
-      padBot = Math.max(170, Math.floor(H * 0.38));
+      padTop = Math.max(48, Math.floor(H * 0.12));
+      padBot = Math.max(160, Math.floor(H * 0.36));
     }
   } else {
-    // บนคอมพิวเตอร์ (PC)
+    // บนคอมพิวเตอร์ (PC / Mac)
     padLeft = Math.max(20, Math.floor(W * 0.04));
     padRight = padLeft;
-    padTop = Math.max(48, Math.floor(H * 0.10));
-    padBot = Math.max(24, Math.floor(H * 0.05));
+    padTop = Math.max(44, Math.floor(H * 0.08));
+    padBot = Math.max(20, Math.floor(H * 0.04));
   }
 
   const availW = Math.max(100, W - padLeft - padRight);
   const availH = Math.max(100, H - padTop - padBot);
 
-  TS = Math.max(26, Math.floor(Math.min(availW / CFG.grid.cols, availH / CFG.grid.rows)));
+  TS = Math.max(28, Math.floor(Math.min(availW / CFG.grid.cols, availH / CFG.grid.rows)));
   const arenaW = CFG.grid.cols * TS;
   const arenaH = CFG.grid.rows * TS;
 
@@ -6774,12 +6764,6 @@ function syncOptControls(){
   const vSelect = document.getElementById('btnOptVoiceSelect');
   if(vSelect) vSelect.addEventListener('click', ()=>{
     voOpen();
-  });
-
-  const aToggle = document.getElementById('btnOptAutoAim');
-  if(aToggle) aToggle.addEventListener('click', ()=>{
-    autoAimOn = !autoAimOn;
-    syncOptControls();
   });
 
   const btnOptFs = document.getElementById('btnOptFullscreen');

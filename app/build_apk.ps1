@@ -14,6 +14,7 @@ if (-not (Test-Path $buildToolsDir)) {
 $androidJar = "$sdkDir\platforms\android-35\android.jar"
 $jdkBin = "C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot\bin"
 
+$aapt = "$buildToolsDir\aapt.exe"
 $aapt2 = "$buildToolsDir\aapt2.exe"
 $d8 = "$buildToolsDir\d8.bat"
 $zipalign = "$buildToolsDir\zipalign.exe"
@@ -360,26 +361,15 @@ if (-not (Test-Path "$buildDir\bin\classes.dex")) {
 }
 Write-Host "classes.dex generated successfully." -ForegroundColor Green
 
-# 5. Inject classes.dex into base.apk using .NET ZipArchive
-Add-Type -AssemblyName System.IO.Compression
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$apkZip = [System.IO.Compression.ZipFile]::Open("$buildDir\bin\base.apk", [System.IO.Compression.ZipArchiveMode]::Update)
-[System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($apkZip, "$buildDir\bin\classes.dex", "classes.dex") | Out-Null
-$apkZip.Dispose()
-
-$verifyZip = [System.IO.Compression.ZipFile]::OpenRead("$buildDir\bin\base.apk")
-$dexEntry = $verifyZip.GetEntry("classes.dex")
-if ($null -eq $dexEntry) {
-    $verifyZip.Dispose()
-    Write-Error "classes.dex was NOT found in base.apk!"
-    exit 1
-}
-Write-Host "classes.dex injected and verified in base.apk ($($dexEntry.Length) bytes)." -ForegroundColor Green
-$verifyZip.Dispose()
+# 5. Inject classes.dex into base.apk using aapt.exe
+Push-Location "$buildDir\bin"
+& $aapt add base.apk classes.dex
+Pop-Location
+Write-Host "classes.dex injected into base.apk using aapt.exe." -ForegroundColor Green
 
 Write-Host "[8/8] Aligning & Signing APK..." -ForegroundColor Yellow
-# 6. Zipalign
-cmd.exe /c "`"$zipalign`" -f -p 4 `"$buildDir\bin\base.apk`" `"$buildDir\bin\aligned.apk`""
+# 6. Zipalign (standard 4-byte alignment)
+& $zipalign -f 4 "$buildDir\bin\base.apk" "$buildDir\bin\aligned.apk"
 if (-not (Test-Path "$buildDir\bin\aligned.apk")) {
     Write-Error "Zipalign failed"
     exit 1
@@ -388,12 +378,12 @@ if (-not (Test-Path "$buildDir\bin\aligned.apk")) {
 # 7. Create keystore if not exists
 $keystorePath = "$buildDir\debug.keystore"
 if (-not (Test-Path $keystorePath)) {
-    cmd.exe /c "`"$keytool`" -genkeypair -v -keystore `"$keystorePath`" -alias bloodherokey -keyalg RSA -keysize 2048 -validity 10000 -storepass bloodhero -keypass bloodhero -dname `"CN=BloodHero, OU=Game, O=BloodHero, C=TH`""
+    & $keytool -genkeypair -v -keystore "$keystorePath" -alias bloodherokey -keyalg RSA -keysize 2048 -validity 10000 -storepass bloodhero -keypass bloodhero -dname "CN=BloodHero, OU=Game, O=BloodHero, C=TH"
 }
 
 # 8. Sign APK
 $finalApk = "$appDir\BloodHero-VampireWarrior.apk"
-cmd.exe /c "`"$apksigner`" sign --ks `"$keystorePath`" --ks-pass pass:bloodhero --ks-key-alias bloodherokey --key-pass pass:bloodhero --out `"$finalApk`" `"$buildDir\bin\aligned.apk`""
+& $apksigner sign --ks "$keystorePath" --ks-pass pass:bloodhero --ks-key-alias bloodherokey --key-pass pass:bloodhero --out "$finalApk" "$buildDir\bin\aligned.apk"
 if (-not (Test-Path $finalApk)) {
     Write-Error "Apksigner failed to output final APK"
     exit 1
@@ -403,7 +393,7 @@ if (-not (Test-Path $finalApk)) {
 Copy-Item -Path $finalApk -Destination "$rootDir\BloodHero-VampireWarrior.apk" -Force
 
 # 9. Verify APK
-cmd.exe /c "`"$apksigner`" verify --verbose `"$finalApk`""
+& $apksigner verify --verbose "$finalApk"
 
 $apkInfo = Get-Item $finalApk
 Write-Host "======================================================" -ForegroundColor Green

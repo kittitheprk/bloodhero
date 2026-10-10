@@ -2,8 +2,10 @@ Write-Host "======================================================" -ForegroundC
 Write-Host "  Blood Hero - Android APK Build Pipeline" -ForegroundColor Cyan
 Write-Host "======================================================" -ForegroundColor Cyan
 
-$rootDir = "c:\Users\WIN11\Downloads\bloodhero"
-$buildDir = "$rootDir\android-build"
+$appDir = $PSScriptRoot
+$rootDir = (Resolve-Path "$appDir\..").Path
+$webDir = "$rootDir\web"
+$buildDir = "$appDir\android-build"
 $sdkDir = "C:\Android\Sdk"
 $buildToolsDir = "$sdkDir\build-tools\35.0.0"
 if (-not (Test-Path $buildToolsDir)) {
@@ -12,6 +14,7 @@ if (-not (Test-Path $buildToolsDir)) {
 $androidJar = "$sdkDir\platforms\android-35\android.jar"
 $jdkBin = "C:\Program Files\Microsoft\jdk-17.0.19.10-hotspot\bin"
 
+$aapt = "$buildToolsDir\aapt.exe"
 $aapt2 = "$buildToolsDir\aapt2.exe"
 $d8 = "$buildToolsDir\d8.bat"
 $zipalign = "$buildToolsDir\zipalign.exe"
@@ -88,7 +91,7 @@ $manifest = @"
     </application>
 </manifest>
 "@
-[IO.File]::WriteAllText("$buildDir\AndroidManifest.xml", $manifest, [System.Text.Encoding]::UTF8)
+[IO.File]::WriteAllText("$buildDir\AndroidManifest.xml", $manifest, $utf8NoBom)
 
 $strings = @"
 <?xml version="1.0" encoding="utf-8"?>
@@ -96,39 +99,46 @@ $strings = @"
     <string name="app_name">Blood Hero</string>
 </resources>
 "@
-[IO.File]::WriteAllText("$buildDir\res\values\strings.xml", $strings, [System.Text.Encoding]::UTF8)
+[IO.File]::WriteAllText("$buildDir\res\values\strings.xml", $strings, $utf8NoBom)
 
 $styles = @"
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="AppTheme" parent="@android:style/Theme.NoTitleBar.Fullscreen">
-        <item name="android:windowBackground">@android:color/black</item>
-        <item name="android:windowNoTitle">true</item>
         <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorBackground">#0c0614</item>
     </style>
 </resources>
 "@
-[IO.File]::WriteAllText("$buildDir\res\values\styles.xml", $styles, [System.Text.Encoding]::UTF8)
+[IO.File]::WriteAllText("$buildDir\res\values\styles.xml", $styles, $utf8NoBom)
 
 $layout = @"
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#07040d">
+    android:background="#000000">
 
     <WebView
-        android:id="@+id/webview"
+        android:id="@+id/game_webview"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#07040d" />
+        android:scrollbars="none"
+        android:overScrollMode="never" />
+
 </FrameLayout>
 "@
-[IO.File]::WriteAllText("$buildDir\res\layout\activity_main.xml", $layout, [System.Text.Encoding]::UTF8)
+[IO.File]::WriteAllText("$buildDir\res\layout\activity_main.xml", $layout, $utf8NoBom)
 
 Write-Host "[4/8] Generating app icon from vampire hero sprite..." -ForegroundColor Yellow
 Add-Type -AssemblyName System.Drawing
-$spriteFile = "$rootDir\sprite-animation-128x128-frames\frame-1.png"
+$spriteFile = "$webDir\sprite-animation-128x128-frames\frame-1.png"
+if (-not (Test-Path $spriteFile)) {
+    $spriteFile = "$rootDir\sprite-animation-128x128-frames\frame-1.png"
+}
+
 if (Test-Path $spriteFile) {
     $srcBmp = [System.Drawing.Bitmap]::FromFile($spriteFile)
     
@@ -167,11 +177,16 @@ if (Test-Path $spriteFile) {
 }
 
 Write-Host "[5/8] Copying game web assets..." -ForegroundColor Yellow
-Copy-Item -Path "$rootDir\vampire_warrior_blood_hero.html" -Destination "$buildDir\assets\index.html" -Force
-if (Test-Path "$rootDir\hero_sprites.js") {
+$htmlSource = if (Test-Path "$webDir\index.html") { "$webDir\index.html" } else { "$rootDir\index.html" }
+Copy-Item -Path $htmlSource -Destination "$buildDir\assets\index.html" -Force
+if (Test-Path "$webDir\hero_sprites.js") {
+    Copy-Item -Path "$webDir\hero_sprites.js" -Destination "$buildDir\assets\hero_sprites.js" -Force
+} elseif (Test-Path "$rootDir\hero_sprites.js") {
     Copy-Item -Path "$rootDir\hero_sprites.js" -Destination "$buildDir\assets\hero_sprites.js" -Force
 }
-if (Test-Path "$rootDir\sprite-animation-128x128-frames") {
+if (Test-Path "$webDir\sprite-animation-128x128-frames") {
+    Copy-Item -Path "$webDir\sprite-animation-128x128-frames" -Destination "$buildDir\assets\sprite-animation-128x128-frames" -Recurse -Force
+} elseif (Test-Path "$rootDir\sprite-animation-128x128-frames") {
     Copy-Item -Path "$rootDir\sprite-animation-128x128-frames" -Destination "$buildDir\assets\sprite-animation-128x128-frames" -Recurse -Force
 }
 
@@ -180,47 +195,59 @@ $mainActivity = @"
 package com.bloodhero.vampirewarrior;
 
 import android.app.Activity;
-import android.os.Bundle;
+import android.content.pm.ActivityInfo;
 import android.os.Build;
+import android.os.Bundle;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
-import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebChromeClient;
 
 public class MainActivity extends Activity {
-    private WebView mWebView;
+    private WebView webView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
         requestWindowFeature(Window.FEATURE_NO_TITLE);
-        getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        getWindow().setFlags(
+            WindowManager.LayoutParams.FLAG_FULLSCREEN,
+            WindowManager.LayoutParams.FLAG_FULLSCREEN
+        );
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
-        setContentView(R.layout.activity_main);
         hideSystemUI();
 
-        mWebView = findViewById(R.id.webview);
-        WebSettings settings = mWebView.getSettings();
+        setContentView(R.layout.activity_main);
+
+        webView = (WebView) findViewById(R.id.game_webview);
+        setupWebView();
+        webView.loadUrl("file:///android_asset/index.html");
+    }
+
+    private void setupWebView() {
+        WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
         settings.setAllowFileAccess(true);
-        settings.setAllowContentAccess(true);
+        settings.setAllowFileAccessFromFileURLs(true);
+        settings.setAllowUniversalAccessFromFileURLs(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
         settings.setSupportZoom(false);
         settings.setBuiltInZoomControls(false);
         settings.setDisplayZoomControls(false);
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT);
 
-        mWebView.setBackgroundColor(0xFF07040D);
-        mWebView.setWebChromeClient(new WebChromeClient());
-        mWebView.setWebViewClient(new WebViewClient() {
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        webView.setBackgroundColor(0xFF000000);
+
+        webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
@@ -228,15 +255,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        mWebView.loadUrl("file:///android_asset/index.html");
-    }
-
-    @Override
-    public void onWindowFocusChanged(boolean hasFocus) {
-        super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) {
-            hideSystemUI();
-        }
+        webView.setWebChromeClient(new WebChromeClient());
     }
 
     private void hideSystemUI() {
@@ -250,43 +269,57 @@ public class MainActivity extends Activity {
                 | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                 | View.SYSTEM_UI_FLAG_FULLSCREEN
             );
-        }
-    }
-
-    @Override
-    public void onBackPressed() {
-        if (mWebView != null && mWebView.canGoBack()) {
-            mWebView.goBack();
         } else {
-            super.onBackPressed();
+            decorView.setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_FULLSCREEN
+            );
         }
     }
 
     @Override
-    protected void onPause() {
-        super.onPause();
-        if (mWebView != null) mWebView.onPause();
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            hideSystemUI();
+        }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        if (webView != null) webView.onResume();
         hideSystemUI();
-        if (mWebView != null) mWebView.onResume();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (webView != null) webView.onPause();
     }
 
     @Override
     protected void onDestroy() {
-        if (mWebView != null) {
-            mWebView.destroy();
+        if (webView != null) {
+            webView.destroy();
         }
         super.onDestroy();
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (webView != null && webView.canGoBack()) {
+            webView.goBack();
+        } else {
+            super.onBackPressed();
+        }
     }
 }
 "@
 [IO.File]::WriteAllText("$buildDir\src\com\bloodhero\vampirewarrior\MainActivity.java", $mainActivity, $utf8NoBom)
 
 Write-Host "[7/8] Compiling resources & Java bytecode..." -ForegroundColor Yellow
+
 # 1. AAPT2 compile to directory
 cmd.exe /c "`"$aapt2`" compile --dir `"$buildDir\res`" -o `"$buildDir\obj\compiled`""
 $flatFiles = Get-ChildItem "$buildDir\obj\compiled" -Filter "*.flat" | Select-Object -ExpandProperty FullName
@@ -299,13 +332,14 @@ Write-Host "Compiled $($flatFiles.Count) resource flat files." -ForegroundColor 
 # 2. AAPT2 link
 $flatArgs = ($flatFiles | ForEach-Object { "`"$_`"" }) -join " "
 cmd.exe /c "`"$aapt2`" link -o `"$buildDir\bin\base.apk`" -I `"$androidJar`" --manifest `"$buildDir\AndroidManifest.xml`" $flatArgs --java `"$buildDir\src`" -A `"$buildDir\assets`" --auto-add-overlay"
+
 if (-not (Test-Path "$buildDir\bin\base.apk")) {
     Write-Error "AAPT2 link failed to create base.apk"
     exit 1
 }
 Write-Host "base.apk created with R.java and assets." -ForegroundColor Green
 
-# 3. Javac compile
+# 3. Compile Java classes
 $javaFiles = Get-ChildItem "$buildDir\src" -Filter "*.java" -Recurse | Select-Object -ExpandProperty FullName
 $javaListFile = "$buildDir\bin\java_sources.txt"
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -318,7 +352,7 @@ if (-not $classFiles) {
 }
 Write-Host "Compiled $($classFiles.Count) class files." -ForegroundColor Green
 
-# 4. D8 dex
+# 4. Dex with D8
 $classArgList = ($classFiles | ForEach-Object { "`"$_`"" }) -join " "
 cmd.exe /c "`"$d8`" --output `"$buildDir\bin`" --lib `"$androidJar`" $classArgList"
 if (-not (Test-Path "$buildDir\bin\classes.dex")) {
@@ -327,26 +361,15 @@ if (-not (Test-Path "$buildDir\bin\classes.dex")) {
 }
 Write-Host "classes.dex generated successfully." -ForegroundColor Green
 
-# 5. Inject classes.dex into base.apk using .NET ZipArchive
-Add-Type -AssemblyName System.IO.Compression
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$apkZip = [System.IO.Compression.ZipFile]::Open("$buildDir\bin\base.apk", [System.IO.Compression.ZipArchiveMode]::Update)
-[System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($apkZip, "$buildDir\bin\classes.dex", "classes.dex") | Out-Null
-$apkZip.Dispose()
-
-$verifyZip = [System.IO.Compression.ZipFile]::OpenRead("$buildDir\bin\base.apk")
-$dexEntry = $verifyZip.GetEntry("classes.dex")
-if (-not $dexEntry) {
-    $verifyZip.Dispose()
-    Write-Error "classes.dex was NOT found in base.apk!"
-    exit 1
-}
-Write-Host "classes.dex injected and verified in base.apk ($($dexEntry.Length) bytes)." -ForegroundColor Green
-$verifyZip.Dispose()
+# 5. Inject classes.dex into base.apk using aapt.exe
+Push-Location "$buildDir\bin"
+& $aapt add base.apk classes.dex
+Pop-Location
+Write-Host "classes.dex injected into base.apk using aapt.exe." -ForegroundColor Green
 
 Write-Host "[8/8] Aligning & Signing APK..." -ForegroundColor Yellow
-# 6. Zipalign
-cmd.exe /c "`"$zipalign`" -f -p 4 `"$buildDir\bin\base.apk`" `"$buildDir\bin\aligned.apk`""
+# 6. Zipalign (standard 4-byte alignment)
+& $zipalign -f 4 "$buildDir\bin\base.apk" "$buildDir\bin\aligned.apk"
 if (-not (Test-Path "$buildDir\bin\aligned.apk")) {
     Write-Error "Zipalign failed"
     exit 1
@@ -355,23 +378,27 @@ if (-not (Test-Path "$buildDir\bin\aligned.apk")) {
 # 7. Create keystore if not exists
 $keystorePath = "$buildDir\debug.keystore"
 if (-not (Test-Path $keystorePath)) {
-    cmd.exe /c "`"$keytool`" -genkeypair -v -keystore `"$keystorePath`" -alias bloodherokey -keyalg RSA -keysize 2048 -validity 10000 -storepass bloodhero -keypass bloodhero -dname `"CN=BloodHero, OU=Game, O=BloodHero, C=TH`""
+    & $keytool -genkeypair -v -keystore "$keystorePath" -alias bloodherokey -keyalg RSA -keysize 2048 -validity 10000 -storepass bloodhero -keypass bloodhero -dname "CN=BloodHero, OU=Game, O=BloodHero, C=TH"
 }
 
 # 8. Sign APK
-$finalApk = "$rootDir\BloodHero-VampireWarrior.apk"
-cmd.exe /c "`"$apksigner`" sign --ks `"$keystorePath`" --ks-pass pass:bloodhero --ks-key-alias bloodherokey --key-pass pass:bloodhero --out `"$finalApk`" `"$buildDir\bin\aligned.apk`""
+$finalApk = "$appDir\BloodHero-VampireWarrior.apk"
+& $apksigner sign --ks "$keystorePath" --ks-pass pass:bloodhero --ks-key-alias bloodherokey --key-pass pass:bloodhero --out "$finalApk" "$buildDir\bin\aligned.apk"
 if (-not (Test-Path $finalApk)) {
     Write-Error "Apksigner failed to output final APK"
     exit 1
 }
 
+# Also copy to root for user convenience
+Copy-Item -Path $finalApk -Destination "$rootDir\BloodHero-VampireWarrior.apk" -Force
+
 # 9. Verify APK
-cmd.exe /c "`"$apksigner`" verify --verbose `"$finalApk`""
+& $apksigner verify --verbose "$finalApk"
 
 $apkInfo = Get-Item $finalApk
 Write-Host "======================================================" -ForegroundColor Green
 Write-Host "  SUCCESS! APK generated successfully!" -ForegroundColor Green
-Write-Host "  Output APK: $($apkInfo.FullName)" -ForegroundColor Cyan
+Write-Host "  Output APK (App Folder) : $($apkInfo.FullName)" -ForegroundColor Cyan
+Write-Host "  Output APK (Root Folder): $rootDir\BloodHero-VampireWarrior.apk" -ForegroundColor Cyan
 Write-Host "  File Size : $([math]::Round($apkInfo.Length / 1MB, 2)) MB ($($apkInfo.Length) bytes)" -ForegroundColor Cyan
 Write-Host "======================================================" -ForegroundColor Green
